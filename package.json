@@ -1,0 +1,17 @@
+{
+  "name": "websocket-auction-demo",
+  "version": "1.0.0",
+  "description": "WebSocket auction demo with server-side timer and anti-sniping",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "test-bots": "node test-bots.js"
+  },
+  "dependencies": {
+    "express": "^4.18.2",
+    "socket.io": "^4.7.2"
+  },
+  "devDependencies": {
+    "socket.io-client": "^4.7.2"
+  }
+}

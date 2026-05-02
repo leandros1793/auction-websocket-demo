@@ -1,0 +1,356 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<title>Auction Demo — WebSocket Test Client</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: 'Courier New', monospace;
+    background: #0d0d0d;
+    color: #e0e0e0;
+    padding: 20px;
+    font-size: 14px;
+  }
+  h1 { color: #f0a500; font-size: 18px; margin-bottom: 4px; }
+  .subtitle { color: #666; font-size: 12px; margin-bottom: 20px; }
+
+  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  @media (max-width: 700px) { .grid { grid-template-columns: 1fr; } }
+
+  .card {
+    background: #1a1a1a;
+    border: 1px solid #333;
+    border-radius: 6px;
+    padding: 16px;
+  }
+  .card h2 { color: #aaa; font-size: 11px; text-transform: uppercase;
+             letter-spacing: 1px; margin-bottom: 12px; }
+
+  /* Timer */
+  #timer-display {
+    font-size: 56px;
+    font-weight: bold;
+    text-align: center;
+    color: #f0a500;
+    line-height: 1;
+    padding: 8px 0;
+    transition: color 0.3s;
+  }
+  #timer-display.danger { color: #e74c3c; }
+  #timer-display.sniped-flash {
+    animation: flash 0.5s ease 2;
+  }
+  @keyframes flash {
+    0%, 100% { opacity: 1; }
+    50%       { opacity: 0.1; }
+  }
+
+  /* Status badge */
+  .badge {
+    display: inline-block;
+    padding: 2px 10px;
+    border-radius: 20px;
+    font-size: 11px;
+    font-weight: bold;
+    text-transform: uppercase;
+  }
+  .badge-waiting { background: #333; color: #aaa; }
+  .badge-active  { background: #27ae60; color: #fff; }
+  .badge-ended   { background: #e74c3c; color: #fff; }
+
+  /* Current bid */
+  #current-bid {
+    font-size: 32px;
+    color: #2ecc71;
+    font-weight: bold;
+    text-align: center;
+    margin: 8px 0 4px;
+  }
+  #high-bidder { text-align: center; color: #888; font-size: 12px; }
+  #min-next-bid { text-align: center; color: #666; font-size: 11px; margin-top: 4px; }
+  #ext-count { text-align: center; color: #f0a500; font-size: 11px; margin-top: 4px; }
+
+  /* Controls */
+  input, button, select {
+    background: #111;
+    border: 1px solid #444;
+    color: #e0e0e0;
+    padding: 8px 12px;
+    border-radius: 4px;
+    font-family: inherit;
+    font-size: 13px;
+    width: 100%;
+    margin-bottom: 8px;
+  }
+  button {
+    cursor: pointer;
+    font-weight: bold;
+    transition: background 0.2s;
+  }
+  button:hover { background: #222; }
+  .btn-primary  { border-color: #f0a500; color: #f0a500; }
+  .btn-primary:hover  { background: #f0a500; color: #000; }
+  .btn-success  { border-color: #2ecc71; color: #2ecc71; }
+  .btn-success:hover  { background: #2ecc71; color: #000; }
+  .btn-danger   { border-color: #e74c3c; color: #e74c3c; }
+  .btn-danger:hover   { background: #e74c3c; color: #fff; }
+  .btn-row { display: flex; gap: 8px; }
+  .btn-row button { margin-bottom: 0; }
+
+  /* Event log */
+  #log {
+    height: 320px;
+    overflow-y: auto;
+    font-size: 12px;
+    line-height: 1.6;
+    background: #111;
+    border: 1px solid #222;
+    border-radius: 4px;
+    padding: 8px;
+  }
+  .log-entry { border-bottom: 1px solid #1a1a1a; padding: 3px 0; }
+  .log-entry .ts  { color: #444; margin-right: 6px; }
+  .ev-connect     { color: #3498db; }
+  .ev-state       { color: #95a5a6; }
+  .ev-tick        { color: #555; }
+  .ev-start       { color: #2ecc71; font-weight: bold; }
+  .ev-bid         { color: #f0a500; font-weight: bold; }
+  .ev-snipe       { color: #e74c3c; font-weight: bold; }
+  .ev-rejected    { color: #c0392b; }
+  .ev-ended       { color: #9b59b6; font-weight: bold; }
+  .ev-reset       { color: #7f8c8d; }
+
+  /* Connection indicator */
+  #conn-indicator {
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    background: #e74c3c;
+    display: inline-block;
+    margin-right: 6px;
+    vertical-align: middle;
+  }
+  #conn-indicator.connected { background: #2ecc71; }
+  #conn-status { color: #666; font-size: 11px; vertical-align: middle; }
+
+  .snipe-alert {
+    background: #3d1a1a;
+    border: 1px solid #e74c3c;
+    border-radius: 4px;
+    padding: 6px 10px;
+    color: #e74c3c;
+    font-size: 12px;
+    text-align: center;
+    margin-top: 8px;
+    display: none;
+  }
+  .snipe-alert.visible { display: block; }
+</style>
+</head>
+<body>
+
+<h1>🔨 Auction WebSocket Demo</h1>
+<p class="subtitle">
+  <span id="conn-indicator"></span>
+  <span id="conn-status">Connecting…</span>
+  &nbsp;|&nbsp; Socket: <code id="socket-id">—</code>
+  &nbsp;|&nbsp; <span id="status-badge" class="badge badge-waiting">waiting</span>
+</p>
+
+<div class="grid">
+
+  <!-- ── TIMER & BID STATE ── -->
+  <div class="card">
+    <h2>Estado del Remate</h2>
+    <div id="timer-display">--</div>
+    <div style="text-align:center; margin-top:4px; color:#555; font-size:11px;">segundos restantes</div>
+    <div class="snipe-alert" id="snipe-alert">
+      ⚡ ANTI-SNIPE — Tiempo extendido
+    </div>
+    <hr style="border-color:#222; margin: 12px 0;">
+    <div id="current-bid">$0</div>
+    <div id="high-bidder">Sin ofertas</div>
+    <div id="min-next-bid">Mínima próxima: $100</div>
+    <div id="ext-count"></div>
+  </div>
+
+  <!-- ── CONTROLS ── -->
+  <div class="card">
+    <h2>Controles</h2>
+    <input id="bidder-name" type="text" placeholder="Tu nombre (ej: Alice)" value="Bidder-A" />
+    <input id="bid-amount" type="number" placeholder="Monto de oferta" value="100" min="0" step="100" />
+    <div class="btn-row">
+      <button class="btn-success" onclick="placeBid()">💰 Ofertar</button>
+      <button class="btn-primary" onclick="startAuction()">▶ Iniciar</button>
+      <button class="btn-danger"  onclick="resetAuction()">↺ Reset</button>
+    </div>
+    <hr style="border-color:#222; margin: 10px 0 8px;">
+    <p style="color:#555; font-size:11px; line-height:1.6;">
+      Tip: abrí varias pestañas para simular múltiples pujadores.<br>
+      O ejecutá <code>node test-bots.js</code> para bots automáticos.
+    </p>
+    <hr style="border-color:#222; margin: 8px 0;">
+    <p style="color:#555; font-size:11px;">Quick bids (sobre el mínimo):</p>
+    <div class="btn-row" style="margin-top:6px;">
+      <button onclick="quickBid(0)"   style="font-size:11px;">Mínimo</button>
+      <button onclick="quickBid(100)" style="font-size:11px;">+$100</button>
+      <button onclick="quickBid(500)" style="font-size:11px;">+$500</button>
+    </div>
+  </div>
+
+  <!-- ── EVENT LOG ── -->
+  <div class="card" style="grid-column: 1 / -1;">
+    <h2>Event Log (WebSocket) <button onclick="clearLog()" style="width:auto; padding:2px 8px; font-size:10px; float:right; margin:0;">Limpiar</button></h2>
+    <div id="log"></div>
+  </div>
+
+</div>
+
+<script src="/socket.io/socket.io.js"></script>
+<script>
+  // ─── Socket setup ───────────────────────────────────────────────────────────
+  const socket = io();
+  let minNextBid = 100;
+
+  // ─── Log helper ─────────────────────────────────────────────────────────────
+  function log(msg, cls = 'ev-state') {
+    const el  = document.getElementById('log');
+    const now = new Date().toLocaleTimeString('es-AR', { hour12: false });
+    el.innerHTML += `<div class="log-entry"><span class="ts">${now}</span><span class="${cls}">${msg}</span></div>`;
+    el.scrollTop = el.scrollHeight;
+  }
+  function clearLog() { document.getElementById('log').innerHTML = ''; }
+
+  // ─── Timer display ───────────────────────────────────────────────────────────
+  function updateTimer(t) {
+    const el = document.getElementById('timer-display');
+    el.textContent = t >= 0 ? String(t).padStart(2, '0') : '--';
+    el.classList.toggle('danger', t <= 10 && t > 0);
+  }
+
+  function flashSnipe() {
+    const el    = document.getElementById('timer-display');
+    const alert = document.getElementById('snipe-alert');
+    el.classList.remove('sniped-flash');
+    void el.offsetWidth; // reflow
+    el.classList.add('sniped-flash');
+    alert.classList.add('visible');
+    setTimeout(() => alert.classList.remove('visible'), 3000);
+  }
+
+  // ─── State render ────────────────────────────────────────────────────────────
+  function renderState(s) {
+    updateTimer(s.timeLeft);
+    document.getElementById('current-bid').textContent   = `$${s.currentBid.toLocaleString()}`;
+    document.getElementById('high-bidder').textContent   = s.highBidder ? `🏆 ${s.highBidder}` : 'Sin ofertas';
+    minNextBid = s.minNextBid;
+    document.getElementById('min-next-bid').textContent  = `Mínima próxima: $${s.minNextBid.toLocaleString()}`;
+    document.getElementById('bid-amount').value          = s.minNextBid;
+    document.getElementById('ext-count').textContent     =
+      s.extensionCount > 0 ? `⚡ Extensiones: ${s.extensionCount}` : '';
+
+    const badge = document.getElementById('status-badge');
+    badge.textContent  = s.status;
+    badge.className    = `badge badge-${s.status}`;
+  }
+
+  // ─── Socket events ───────────────────────────────────────────────────────────
+  socket.on('connect', () => {
+    document.getElementById('conn-indicator').className = 'connected';
+    document.getElementById('conn-status').textContent  = 'Conectado';
+    document.getElementById('socket-id').textContent    = socket.id;
+    log(`Conectado — socket: ${socket.id}`, 'ev-connect');
+  });
+
+  socket.on('disconnect', () => {
+    document.getElementById('conn-indicator').className = '';
+    document.getElementById('conn-status').textContent  = 'Desconectado';
+    log('Desconectado del servidor', 'ev-rejected');
+  });
+
+  socket.on('auction:state', (s) => {
+    renderState(s);
+    log(`auction:state — status: ${s.status} | bid: $${s.currentBid} | timeLeft: ${s.timeLeft}s | bids: ${s.bids.length}`, 'ev-state');
+  });
+
+  socket.on('auction:tick', (t) => {
+    updateTimer(t.timeLeft);
+    // Only log every 5s to avoid flooding
+    if (t.timeLeft % 5 === 0)
+      log(`⏱ tick → ${t.timeLeft}s | bid: $${t.currentBid}`, 'ev-tick');
+  });
+
+  socket.on('auction:bid_accepted', (b) => {
+    document.getElementById('current-bid').textContent  = `$${b.amount.toLocaleString()}`;
+    document.getElementById('high-bidder').textContent  = `🏆 ${b.bidder}`;
+    document.getElementById('min-next-bid').textContent = `Mínima próxima: $${b.minNextBid.toLocaleString()}`;
+    document.getElementById('bid-amount').value         = b.minNextBid;
+    minNextBid = b.minNextBid;
+
+    if (b.sniped) {
+      flashSnipe();
+      updateTimer(b.extendedTo);
+      log(
+        `⚡ ANTI-SNIPE — Bid #${b.seq} por ${b.bidder}: $${b.amount.toLocaleString()} ` +
+        `(fue a los ${b.timeLeft}s) → extendido a ${b.extendedTo}s`,
+        'ev-snipe'
+      );
+    } else {
+      log(
+        `💰 Bid #${b.seq} aceptada — ${b.bidder}: $${b.amount.toLocaleString()} ` +
+        `| timeLeft: ${b.timeLeft}s`,
+        'ev-bid'
+      );
+    }
+  });
+
+  socket.on('auction:bid_rejected', (r) => {
+    log(`✗ Bid rechazada: ${r.msg} (enviado: $${r.amount})`, 'ev-rejected');
+  });
+
+  socket.on('auction:ended', (e) => {
+    updateTimer(0);
+    log(
+      `🏁 REMATE FINALIZADO — Ganador: ${e.winner || 'Nadie'} | ` +
+      `Final: $${e.finalBid.toLocaleString()} | ` +
+      `Bids: ${e.totalBids} | Extensions: ${e.extensionCount}`,
+      'ev-ended'
+    );
+  });
+
+  socket.on('auction:error', (e) => {
+    log(`Error: ${e.msg}`, 'ev-rejected');
+  });
+
+  // ─── Actions ─────────────────────────────────────────────────────────────────
+  function startAuction() {
+    socket.emit('auction:start');
+    log('→ auction:start emitido', 'ev-start');
+  }
+
+  function placeBid() {
+    const bidder = document.getElementById('bidder-name').value.trim();
+    const amount = Number(document.getElementById('bid-amount').value);
+    if (!bidder) { alert('Ingresá tu nombre'); return; }
+    socket.emit('auction:bid', { bidder, amount });
+    log(`→ auction:bid emitido — ${bidder}: $${amount.toLocaleString()}`, 'ev-bid');
+  }
+
+  function quickBid(extra) {
+    document.getElementById('bid-amount').value = minNextBid + extra;
+    placeBid();
+  }
+
+  function resetAuction() {
+    socket.emit('auction:reset');
+    document.getElementById('snipe-alert').classList.remove('visible');
+    log('→ auction:reset emitido', 'ev-reset');
+  }
+
+  // Enter key en bid amount
+  document.getElementById('bid-amount').addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') placeBid();
+  });
+</script>
+</body>
+</html>
